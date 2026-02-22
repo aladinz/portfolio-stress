@@ -1,0 +1,8 @@
+# Ticker  Weight(%)
+FZROX    41
+XLV      13
+SMH      12
+SCHD     12
+VXUS     10
+VRT       4
+VGIT      7

@@ -1,0 +1,10 @@
+| Asset | Weight |
+| ----- | ------ |
+| VTI   | 28%    |
+| SCHD  | 12%    |
+| XLK   | 10%    |
+| VXUS  | 9%     |
+| VTIP  | 12%    |
+| XLV   | 9%     |
+| PDBC  | 8%     |
+| BNDW  | 12%    |
