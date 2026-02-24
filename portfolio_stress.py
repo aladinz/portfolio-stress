@@ -247,6 +247,78 @@ b6040_stats = {
     "sharpe": sharpe(b6040_ret),
 }
 
+# ----------------------------------------
+# 5b. Portfolio grade / rating
+# ----------------------------------------
+def _grade_sharpe(s):
+    if s >= 1.5: return 30, "Excellent Sharpe ratio"
+    if s >= 1.0: return 24, "Good risk-adjusted return"
+    if s >= 0.7: return 18, "Acceptable risk-adjusted return"
+    if s >= 0.4: return 12, "Below-average risk-adjusted return"
+    if s >= 0.0: return  6, "Poor risk-adjusted return"
+    return 0, "Negative risk-adjusted return"
+
+def _grade_alpha(a):
+    if a >= 0.03: return 20, f"Strong outperformance vs SPY (+{a:.1%})"
+    if a >= 0.01: return 16, f"Moderate outperformance vs SPY (+{a:.1%})"
+    if a >= 0.00: return 12, f"Roughly in-line with SPY ({a:+.1%})"
+    if a >= -0.02: return 6, f"Slight underperformance vs SPY ({a:+.1%})"
+    return 0, f"Meaningful underperformance vs SPY ({a:+.1%})"
+
+def _grade_drawdown(dd):
+    if dd >= -0.10: return 20, "Very shallow max drawdown"
+    if dd >= -0.20: return 16, "Controlled max drawdown"
+    if dd >= -0.30: return 12, "Moderate max drawdown"
+    if dd >= -0.40: return  6, "Deep max drawdown"
+    return 2, "Severe max drawdown"
+
+def _grade_vol(v):
+    if v <= 0.10: return 15, "Very low volatility"
+    if v <= 0.15: return 12, "Low-to-moderate volatility"
+    if v <= 0.20: return  9, "Moderate volatility"
+    if v <= 0.25: return  5, "Above-average volatility"
+    return 2, "High volatility"
+
+def _grade_var(var):
+    if var >= -0.010: return 15, "Very low daily tail risk (VaR)"
+    if var >= -0.015: return 12, "Low daily tail risk (VaR)"
+    if var >= -0.020: return  9, "Moderate daily tail risk (VaR)"
+    if var >= -0.025: return  5, "Elevated daily tail risk (VaR)"
+    return 2, "High daily tail risk (VaR)"
+
+_spy_alpha         = full_stats['cagr'] - spy_stats['cagr']
+_pts_sharpe, _txt_sharpe = _grade_sharpe(full_stats['sharpe'])
+_pts_alpha,  _txt_alpha  = _grade_alpha(_spy_alpha)
+_pts_dd,     _txt_dd     = _grade_drawdown(full_stats['max_dd'])
+_pts_vol,    _txt_vol    = _grade_vol(full_stats['vol'])
+_pts_var,    _txt_var    = _grade_var(full_stats['var_95'])
+
+grade_score = _pts_sharpe + _pts_alpha + _pts_dd + _pts_vol + _pts_var  # 0-100
+
+if   grade_score >= 90: grade_letter, grade_color = "A+", "#10b981"
+elif grade_score >= 80: grade_letter, grade_color = "A",  "#10b981"
+elif grade_score >= 70: grade_letter, grade_color = "B+", "#6366f1"
+elif grade_score >= 60: grade_letter, grade_color = "B",  "#6366f1"
+elif grade_score >= 50: grade_letter, grade_color = "C+", "#f59e0b"
+elif grade_score >= 40: grade_letter, grade_color = "C",  "#f59e0b"
+elif grade_score >= 30: grade_letter, grade_color = "D",  "#ef4444"
+else:                   grade_letter, grade_color = "F",  "#ef4444"
+
+grade_breakdown = [
+    ("Sharpe",     _pts_sharpe, 30, _txt_sharpe),
+    ("Alpha",      _pts_alpha,  20, _txt_alpha),
+    ("Drawdown",   _pts_dd,     20, _txt_dd),
+    ("Volatility", _pts_vol,    15, _txt_vol),
+    ("Tail Risk",  _pts_var,    15, _txt_var),
+]
+_grade_bullets_html = "".join(f"<li>{t}</li>" for _, _, _, t in grade_breakdown)
+_grade_bars_html = "".join(
+    f'<div class="gr-row"><span class="gr-label">{name}</span>'
+    f'<div class="gr-bar"><div class="gr-bar-fill" style="width:{pts/mx*100:.0f}%"></div></div>'
+    f'<span class="gr-pts">{pts}/{mx}</span></div>'
+    for name, pts, mx, _ in grade_breakdown
+)
+
 stress_windows = [
     ("2008 GFC",         "2007-10-01", "2009-03-31"),
     ("COVID Crash 2020", "2020-02-01", "2020-04-30"),
@@ -668,6 +740,24 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
 .warn-item{{font-size:13px;color:var(--amber)}}
 .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
 .two-col-header{{padding:14px 20px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}}
+.grade-card{{grid-column:1 / -1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 32px;box-shadow:var(--shadow);position:relative;overflow:hidden;display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap;transition:transform .2s,box-shadow .2s}}
+.grade-card:hover{{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.5)}}
+.grade-card::before{{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--gc,var(--accent));border-radius:var(--radius) var(--radius) 0 0}}
+.grade-letter{{font-size:88px;font-weight:800;line-height:1;color:var(--gc,var(--accent));min-width:96px;text-align:center}}
+.grade-title-label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;text-align:center}}
+.grade-meta{{flex:1;min-width:200px}}
+.grade-meta .label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}}
+.grade-score-line{{font-size:15px;font-weight:700;color:var(--gc,var(--accent));margin-bottom:14px}}
+.grade-bullets{{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}}
+.grade-bullets li{{font-size:13px;color:var(--muted)}}
+.grade-bullets li::before{{content:"\203a  ";color:var(--gc,var(--accent))}}
+.grade-breakdown{{display:flex;flex-direction:column;gap:10px;min-width:240px}}
+.gr-section-label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}}
+.gr-row{{display:grid;grid-template-columns:90px 1fr 44px;align-items:center;gap:10px}}
+.gr-label{{font-size:12px;color:var(--muted)}}
+.gr-bar{{height:6px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}}
+.gr-bar-fill{{height:100%;border-radius:999px;background:var(--gc,var(--accent))}}
+.gr-pts{{font-size:12px;color:var(--text);text-align:right;font-weight:600}}
 .footer{{text-align:center;color:var(--muted);font-size:12px;margin-top:60px;padding-top:24px;border-top:1px solid var(--border)}}
 @media(max-width:768px){{.header{{padding:28px 20px}}.main{{padding:24px 20px 0}}.chart-grid{{grid-template-columns:1fr}}.two-col{{grid-template-columns:1fr}}}}
 </style>
@@ -725,6 +815,21 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
       <div class="label">Alpha vs 60/40</div>
       <div class="value {color_class((full_stats['cagr'] - b6040_stats['cagr']), True)}">{pct((full_stats['cagr'] - b6040_stats['cagr'])*100)}</div>
       <div class="sub">CAGR outperformance vs 60/40 blend</div>
+    </div>
+    <div class="grade-card" style="--gc:{grade_color}">
+      <div>
+        <div class="grade-title-label">Portfolio Grade</div>
+        <div class="grade-letter">{grade_letter}</div>
+      </div>
+      <div class="grade-meta">
+        <div class="label">What drove this grade</div>
+        <div class="grade-score-line">Score: {grade_score} / 100</div>
+        <ul class="grade-bullets">{_grade_bullets_html}</ul>
+      </div>
+      <div class="grade-breakdown">
+        <div class="gr-section-label">Component Scores</div>
+        {_grade_bars_html}
+      </div>
     </div>
   </div>
   <p class="section-title">Performance Charts</p>
