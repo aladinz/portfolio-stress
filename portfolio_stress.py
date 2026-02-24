@@ -739,34 +739,145 @@ fig_heatmap.update_layout(
 )
 
 # 7f. Daily returns distribution with VaR / CVaR lines
+# ── Pre-compute bins so we can colour bars individually ───────────────────────
+_ret_pct   = portfolio_returns.values * 100
+_n_days    = len(_ret_pct)
+_bin_count = 100
+_counts, _edges = np.histogram(_ret_pct, bins=_bin_count)
+_centers   = (_edges[:-1] + _edges[1:]) / 2
+_bin_w     = _edges[1] - _edges[0]
+_bar_colors = [
+    "rgba(239,68,68,0.80)"   if c < 0
+    else "rgba(16,185,129,0.80)"
+    for c in _centers
+]
+# Normal-distribution reference (same mean & std as portfolio returns)
+_mu, _sig = float(np.mean(_ret_pct)), float(np.std(_ret_pct))
+_x_pdf    = np.linspace(_edges[0], _edges[-1], 400)
+_pdf      = (
+    np.exp(-0.5 * ((_x_pdf - _mu) / _sig) ** 2)
+    / (_sig * np.sqrt(2 * np.pi))
+    * _n_days * _bin_w
+)
+
+# Counts used in hover / annotations
+_var_pct_days  = (_ret_pct <= var_95 * 100).sum()   # days below VaR
+_cvar_pct_days = (_ret_pct <= cvar_95 * 100).sum()  # days below CVaR
+_pos_days      = (_ret_pct > 0).sum()
+_neg_days      = (_ret_pct < 0).sum()
+
 fig_dist = go.Figure()
-fig_dist.add_trace(go.Histogram(
-    x=portfolio_returns.values * 100,
-    nbinsx=80,
+
+# ── Shaded tail zones ─────────────────────────────────────────────────────────
+# Extreme tail: < CVaR
+fig_dist.add_vrect(
+    x0=_edges[0], x1=cvar_95 * 100,
+    fillcolor="rgba(239,68,68,0.13)", line_width=0,
+    layer="below",
+)
+# Moderate tail: CVaR → VaR
+fig_dist.add_vrect(
+    x0=cvar_95 * 100, x1=var_95 * 100,
+    fillcolor="rgba(245,158,11,0.10)", line_width=0,
+    layer="below",
+)
+
+# ── Histogram bars (green = positive, red = negative bins) ───────────────────
+fig_dist.add_trace(go.Bar(
+    x=_centers,
+    y=_counts,
+    width=[_bin_w] * len(_centers),
+    marker_color=_bar_colors,
+    marker_line_width=0,
     name="Daily Returns",
-    marker_color=ACCENT,
-    opacity=0.8,
-    hovertemplate="Return: %{x:.2f}%<br>Count: %{y}<extra></extra>",
+    hovertemplate=(
+        "Return: %{x:.2f}%<br>"
+        "Days: %{y}<br>"
+        "<extra></extra>"
+    ),
 ))
+
+# ── Normal-distribution reference overlay ────────────────────────────────────
+fig_dist.add_trace(go.Scatter(
+    x=_x_pdf, y=_pdf,
+    mode="lines",
+    name="Normal dist.",
+    line=dict(color="rgba(148,163,184,0.55)", width=1.5, dash="dot"),
+    hoverinfo="skip",
+))
+
+# ── Zero reference line ───────────────────────────────────────────────────────
 fig_dist.add_vline(
-    x=var_95 * 100, line_color=DANGER, line_dash="dash", line_width=2,
-    annotation_text=f"VaR 95%: {var_95*100:.2f}%",
-    annotation_position="top left",
-    annotation_font=dict(color=DANGER, size=12),
+    x=0,
+    line_color="rgba(255,255,255,0.18)", line_width=1.5,
 )
-fig_dist.add_vline(
-    x=cvar_95 * 100, line_color="#f87171", line_dash="dot", line_width=2,
-    annotation_text=f"CVaR 95%: {cvar_95*100:.2f}%",
-    annotation_position="bottom left",
-    annotation_font=dict(color="#f87171", size=12),
+
+# ── VaR line + annotation ─────────────────────────────────────────────────────
+fig_dist.add_shape(
+    type="line",
+    x0=var_95 * 100, x1=var_95 * 100, y0=0, y1=1, yref="paper",
+    line=dict(color=DANGER, dash="dash", width=2),
 )
+fig_dist.add_annotation(
+    x=var_95 * 100, y=0.97, xref="x", yref="paper",
+    text=(
+        f"<b>VaR 95%</b><br>"
+        f"{var_95*100:.2f}%<br>"
+        f"<span style='font-size:11px'>{_var_pct_days} days ({_var_pct_days/_n_days:.1%})</span>"
+    ),
+    xanchor="right", showarrow=False,
+    font=dict(color=DANGER, size=12),
+    bgcolor="rgba(15,23,42,0.80)", borderpad=5,
+    bordercolor=DANGER, borderwidth=1,
+    align="right",
+)
+
+# ── CVaR line + annotation ────────────────────────────────────────────────────
+fig_dist.add_shape(
+    type="line",
+    x0=cvar_95 * 100, x1=cvar_95 * 100, y0=0, y1=1, yref="paper",
+    line=dict(color="#f87171", dash="dot", width=2),
+)
+fig_dist.add_annotation(
+    x=cvar_95 * 100, y=0.80, xref="x", yref="paper",
+    text=(
+        f"<b>CVaR 95%</b><br>"
+        f"{cvar_95*100:.2f}%<br>"
+        f"<span style='font-size:11px'>avg of worst {_cvar_pct_days} days</span>"
+    ),
+    xanchor="right", showarrow=False,
+    font=dict(color="#f87171", size=12),
+    bgcolor="rgba(15,23,42,0.80)", borderpad=5,
+    bordercolor="#f87171", borderwidth=1,
+    align="right",
+)
+
+# ── Win / loss day summary annotation (top-right) ────────────────────────────
+fig_dist.add_annotation(
+    x=0.99, y=0.97, xref="paper", yref="paper",
+    text=(
+        f"<b>Win rate: {_pos_days/_n_days:.1%}</b><br>"
+        f"<span style='color:#10b981'>{_pos_days} positive days</span><br>"
+        f"<span style='color:#ef4444'>{_neg_days} negative days</span>"
+    ),
+    xanchor="right", showarrow=False,
+    font=dict(size=12, color=TEXT),
+    bgcolor="rgba(15,23,42,0.80)", borderpad=6,
+    bordercolor="rgba(255,255,255,0.12)", borderwidth=1,
+    align="right",
+)
+
 fig_dist.update_layout(
     **LAYOUT_BASE,
     title=dict(text="Daily Returns Distribution & Risk Thresholds", font=dict(size=18, color=TEXT)),
     xaxis_title="Daily Return (%)", xaxis_ticksuffix="%",
-    yaxis_title="Frequency",
-    legend=dict(bgcolor="rgba(0,0,0,0)", borderwidth=0),
-    bargap=0.05,
+    yaxis_title="Days",
+    barmode="overlay",
+    bargap=0,
+    legend=dict(
+        bgcolor="rgba(0,0,0,0)", borderwidth=0,
+        orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0,
+    ),
 )
 
 # 7g. Correlation heatmap
@@ -1217,7 +1328,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
   <p class="section-title">Risk Analysis</p>
   <div class="chart-grid" style="margin-bottom:40px">
     <div class="chart-card chart-full"><div id="chart-heatmap" style="height:min(520px, calc(28px * {len(heat_years)} + 100px))"></div></div>
-    <div class="chart-card chart-full"><div id="chart-dist" style="height:360px"></div></div>
+    <div class="chart-card chart-full"><div id="chart-dist" style="height:420px"></div></div>
   </div>
   <p class="section-title">Diversification &amp; Risk-Adjusted Quality</p>
   <div class="chart-grid" style="margin-bottom:40px">
