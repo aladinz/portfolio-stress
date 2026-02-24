@@ -1,7 +1,12 @@
 import argparse
 import os
+import sys
 import webbrowser
 from datetime import datetime
+
+# Force UTF-8 output on Windows terminals
+if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import numpy as np
 import pandas as pd
