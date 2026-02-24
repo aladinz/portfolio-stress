@@ -873,6 +873,24 @@ for t, w in zip(active, weights_vec):
           <td><div class="bar-track"><div class="bar-fill" style="width:{bar_w}%"></div></div></td>
         </tr>"""
 
+# ── Data Quality tier (used by header badge AND the DQ section card) ─────────
+# Rules:
+#   High   — no data gaps at all, OR every short-history ETF was successfully
+#             backfilled via a validated proxy blend.
+#   Medium — at least one holding has a short history with no proxy and the
+#             engine had to drop early NaNs (some stress windows incomplete).
+#   Low    — one or more tickers were excluded entirely (no data downloaded),
+#             or two or more unproxied short-history ETFs.
+_unproxied_notes = [w for w in warnings if "stress windows may be affected" in w]
+_excluded_notes  = [w for w in warnings if "excluded from portfolio" in w]
+
+if len(_excluded_notes) > 0 or len(_unproxied_notes) >= 2:
+    _dq_tier, _dq_badge_cls, _dq_badge_label = "Low",    "badge-dq-low",    "&#x26A0;&thinsp;Data Quality: Low"
+elif len(_unproxied_notes) == 1:
+    _dq_tier, _dq_badge_cls, _dq_badge_label = "Medium", "badge-dq-medium", "&#x25CF;&thinsp;Data Quality: Medium"
+else:
+    _dq_tier, _dq_badge_cls, _dq_badge_label = "High",   "badge-dq-high",   "&#x2714;&thinsp;Data Quality: High"
+
 # ── Data Quality section HTML ────────────────────────────────────────────────
 _bf_applied = bool(_needs_backfill)
 if _bf_applied:
@@ -1002,6 +1020,9 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
 .badge{{display:inline-block;padding:4px 12px;border-radius:999px;font-size:12px;font-weight:600;letter-spacing:.04em}}
 .badge-accent{{background:rgba(99,102,241,.2);color:var(--accent2);border:1px solid rgba(99,102,241,.3)}}
 .badge-warn{{background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.25)}}
+.badge-dq-high{{background:rgba(16,185,129,.15);color:#10b981;border:1px solid rgba(16,185,129,.3)}}
+.badge-dq-medium{{background:rgba(245,158,11,.15);color:var(--amber);border:1px solid rgba(245,158,11,.3)}}
+.badge-dq-low{{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}}
 .main{{max-width:1280px;margin:0 auto;padding:40px 48px 0}}
 .section-title{{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--accent2);margin-bottom:16px}}
 .stat-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;margin-bottom:40px}}
@@ -1086,7 +1107,10 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
       <h1>{portfolio_name} \u2014 Stress Report</h1>
       <p class="subtitle">Full period: {full_stats['start_date']} \u2192 {full_stats['end_date']} &nbsp;\u00b7&nbsp; Generated {generated_at}</p>
     </div>
-    <span class="badge badge-accent">Portfolio Stress Engine</span>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span class="badge badge-accent">Portfolio Stress Engine</span>
+      <span class="badge {_dq_badge_cls}">{_dq_badge_label}</span>
+    </div>
   </div>
 </div>
 <div class="main">
