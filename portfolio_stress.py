@@ -355,8 +355,8 @@ full_stats = {
     "sharpe":     sharpe(portfolio_returns),
     "var_95":     var_95,
     "cvar_95":    cvar_95,
-    "start_date": data.index[0].date(),
-    "end_date":   data.index[-1].date(),
+    "start_date": portfolio_returns.index[0].date(),
+    "end_date":   portfolio_returns.index[-1].date(),
 }
 
 def _safe_cagr(cum): return cagr(cum) if len(cum) > 1 else float("nan")
@@ -620,8 +620,12 @@ if len(b6040_cum) > 0:
         hovertemplate="%{x|%b %d %Y}<br>60/40: %{y:.3f}<extra></extra>",
     ))
 
+# Normalise to base 1.0 so the portfolio is directly comparable to the
+# benchmarks (which are already divided by their first value above).
+# All stats (CAGR, max-DD, etc.) still use the raw portfolio_cum.
+_port_cum_norm = portfolio_cum / portfolio_cum.iloc[0]
 fig_growth.add_trace(go.Scatter(
-    x=portfolio_cum.index, y=portfolio_cum.values,
+    x=_port_cum_norm.index, y=_port_cum_norm.values,
     mode="lines", name="Portfolio",
     line=dict(color=ACCENT, width=2.5),
     fill="tozeroy", fillcolor="rgba(99,102,241,0.08)",
