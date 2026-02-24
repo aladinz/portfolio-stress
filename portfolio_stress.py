@@ -98,6 +98,9 @@ else:
     bench_data = _bench_raw[["Close"]]
 bench_data = bench_data.ffill()
 
+# ETFs that have a proxy blend defined — short history will be backfilled, not penalised.
+_BACKFILL_SUPPORTED = {"SCHD", "VXUS", "BNDW", "VTIP", "PDBC"}
+
 warnings = []
 for t in tickers:
     if t not in data.columns:
@@ -107,7 +110,10 @@ for t in tickers:
     else:
         first = data[t].first_valid_index()
         if first is not None and first > pd.Timestamp("2007-01-01"):
-            msg = f"{t} history starts {first.date()} — early stress windows may be affected."
+            if t in _BACKFILL_SUPPORTED:
+                msg = f"{t} history starts {first.date()} — will be synthetically backfilled."
+            else:
+                msg = f"{t} history starts {first.date()} — early stress windows may be affected."
             print(f"NOTE: {msg}")
             warnings.append(msg)
 
@@ -115,6 +121,125 @@ active      = [t for t in tickers if t in data.columns]
 data        = data[active]
 weights_vec = np.array([weights[t] for t in active])
 weights_vec = weights_vec / weights_vec.sum()
+
+# ----------------------------------------
+# 2c. Synthetic backfill for ETFs with short history
+# ----------------------------------------
+# For each ETF whose price history begins after the portfolio start date we
+# generate synthetic returns from a proxy blend and graft them on so the whole
+# pipeline (drawdown, Sharpe, stress windows, VaR) uses a full-period series.
+#
+# Proxy blends  →  { ETF: { proxy: weight, ..., "_scale": float (optional) } }
+# "_scale" applies a return multiplier BEFORE reconstructing prices.
+# VTIP: duration ~2.5 yr vs TIP ~7.5 yr  ⟹  scale ≈ 0.35.
+_PROXY_BLENDS = {
+    "SCHD": {"VIG": 1.0},
+    "VXUS": {"VEA": 0.70, "VWO": 0.30},
+    "BNDW": {"BND": 0.50, "BNDX": 0.50},
+    "VTIP": {"TIP": 1.0, "_scale": 0.35},
+    "PDBC": {"DBC": 1.0},
+}
+
+_port_start = pd.Timestamp(start_date)
+_needs_backfill: dict[str, pd.Timestamp] = {}
+for _t in active:
+    if _t in data.columns and _t in _PROXY_BLENDS:
+        _fv = data[_t].first_valid_index()
+        if _fv is not None and _fv > _port_start:
+            _needs_backfill[_t] = _fv   # etf_start date
+
+if _needs_backfill:
+    # ── 1. Download all proxy tickers needed, just once ──────────────────────
+    _all_proxy_tickers: set[str] = set()
+    for _t, _blend in _PROXY_BLENDS.items():
+        if _t in _needs_backfill:
+            _all_proxy_tickers.update(k for k in _blend if not k.startswith("_"))
+
+    _proxy_raw = yf.download(
+        list(_all_proxy_tickers),
+        start=start_date, end=end_date,
+        auto_adjust=True, progress=False,
+    )
+    _proxy_data = (
+        _proxy_raw["Close"]
+        if isinstance(_proxy_raw.columns, pd.MultiIndex)
+        else _proxy_raw
+    )
+    _proxy_data = _proxy_data.ffill()
+
+    # ── 2. Build synthetic prices for each ETF that needs backfill ────────────
+    for _t, _etf_start in _needs_backfill.items():
+        _blend  = _PROXY_BLENDS[_t]
+        _dscale = float(_blend.get("_scale", 1.0))
+        _proxy_wts_raw = {k: v for k, v in _blend.items() if not k.startswith("_")}
+
+        # Keep only proxies present in downloaded data
+        _ok = {p: w for p, w in _proxy_wts_raw.items() if p in _proxy_data.columns}
+        if not _ok:
+            continue   # no proxy available — leave as-is
+
+        # Re-normalise weights to available proxies
+        _total_w = sum(_ok.values())
+        _ok = {p: w / _total_w for p, w in _ok.items()}
+
+        # Dates we need to cover: all dates in data.index up to (not including) etf_start
+        # PLUS etf_start itself (needed to anchor the level).
+        _cover = data.index[data.index <= _etf_start]
+
+        # ── Blended proxy return series for _cover ────────────────────────────
+        # Each proxy contributes weight * pct_change.  Where a proxy has no data
+        # on a date (e.g. BNDX before 2013) the remaining proxies absorb its weight.
+        _bl_num = pd.Series(0.0, index=_cover)   # weighted sum of returns
+        _bl_den = pd.Series(0.0, index=_cover)   # sum of weights with valid data
+
+        for _p, _w in _ok.items():
+            _pret = (
+                _proxy_data[_p]
+                .reindex(_cover)
+                .ffill()
+                .pct_change()
+            )
+            _valid = _pret.notna()
+            _bl_num[_valid] += _pret[_valid] * _w
+            _bl_den[_valid] += _w
+
+        # Where _bl_den > 0 normalise; otherwise treat as 0 return
+        _bl_ret = _bl_num.where(_bl_den == 0, _bl_num / _bl_den)
+        _bl_ret.iloc[0] = 0.0   # first date: no prior price, treat as flat
+
+        # Duration / volatility scaling (e.g. TIP → VTIP)
+        if _dscale != 1.0:
+            _bl_ret *= _dscale
+
+        # ── Reconstruct synthetic prices anchored at first actual price ───────
+        # proxy_cum[t] = ∏_{s=start..t} (1 + r[s])   (cum includes t=start at level 1.0)
+        _proxy_cum = (1 + _bl_ret).cumprod()
+
+        _actual_first_price = float(data[_t].loc[_etf_start])
+        _proxy_cum_at_etf_start = float(_proxy_cum.loc[_etf_start])
+
+        if _proxy_cum_at_etf_start == 0:
+            continue   # degenerate — skip
+
+        # synthetic[t] = actual_first_price * proxy_cum[t] / proxy_cum[etf_start]
+        _synthetic = _proxy_cum * (_actual_first_price / _proxy_cum_at_etf_start)
+
+        # Fill only the dates before etf_start — don't touch real prices
+        _fill_idx = data.index[data.index < _etf_start]   # all NaN dates for this ETF
+        data.loc[_fill_idx, _t] = _synthetic.reindex(_fill_idx).values
+
+        _proxy_names = "+".join(
+            f"{p}×{w:.0%}" if _dscale == 1.0 else f"{p}×{w:.0%}(×{_dscale})"
+            for p, w in _ok.items()
+        )
+        _bf_msg = (
+            f"BACKFILL {_t}: synthetic {data.index[0].date()} → "
+            f"{_fill_idx[-1].date()} via {_proxy_names}"
+        )
+        print(_bf_msg)
+        # Replace the earlier NOTE with the definitive BACKFILL notice
+        warnings[:] = [w for w in warnings if not w.startswith(f"{_t} history starts")]
+        warnings.append(_bf_msg)
 
 # ----------------------------------------
 # 3. Compute returns
@@ -750,8 +875,20 @@ for t, w in zip(active, weights_vec):
 
 warn_html = ""
 if warnings:
-    items = "".join(f'<div class="warn-item">\u26a0 {w}</div>' for w in warnings)
-    warn_html = f'<div class="warn-box">{items}</div>'
+    _bf_items   = [w for w in warnings if w.startswith("BACKFILL")]
+    _warn_items = [w for w in warnings if not w.startswith("BACKFILL")]
+    _parts = ""
+    if _bf_items:
+        _parts += "".join(
+            f'<div class="warn-item backfill-item">&#x1F50D; {w}</div>'
+            for w in _bf_items
+        )
+    if _warn_items:
+        _parts += "".join(
+            f'<div class="warn-item">\u26a0 {w}</div>'
+            for w in _warn_items
+        )
+    warn_html = f'<div class="warn-box">{_parts}</div>'
 
 def _days_rows(df, positive_good):
     rows = ""
@@ -820,6 +957,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
 .bar-fill{{background:linear-gradient(90deg,var(--accent),var(--accent2));height:100%;border-radius:999px}}
 .warn-box{{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);border-radius:var(--radius);padding:16px 20px;margin-bottom:40px;display:flex;flex-direction:column;gap:8px}}
 .warn-item{{font-size:13px;color:var(--amber)}}
+.backfill-item{{color:#38bdf8!important}}
 .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
 .two-col-header{{padding:14px 20px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}}
 .gr-section-label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}}
