@@ -16,6 +16,12 @@ Portfolio categories: Conservative · Moderate · Growth · Aggressive · Resili
 
 # ── Known-ticker lookup tables ────────────────────────────────────────────────
 
+def _clamp(score, lo=0, hi=100):
+    """Clamp a numeric score into the [lo, hi] range (default 0-100).
+    Applied at the exit of every pillar function so that unexpected
+    edge-case inputs never produce an out-of-range result."""
+    return max(lo, min(hi, float(score)))
+
 # Fixed-income / bond ETFs
 _BOND_TICKERS = {
     "BND", "AGG", "TLT", "IEF", "SHY", "VGIT", "VGSH", "VGLT", "BIL",
@@ -162,7 +168,7 @@ def score_structural_integrity(tickers, weights_vec, corr_matrix):
         corr_note = f"high avg correlation ({avg_corr:.2f}) — holdings move together"
 
     explanation = f"{n_note}; {hhi_note}; {corr_note}"
-    return score, explanation
+    return _clamp(score), explanation
 
 
 # ── Pillar 2 – Macro-Resilience (weight 25%) ─────────────────────────────────
@@ -223,7 +229,7 @@ def score_macro_resilience(full_stats, stress_results):
     else:
         stress_note = "no overlapping stress window data"
 
-    return score, f"{dd_note}; {stress_note}"
+    return _clamp(score), f"{dd_note}; {stress_note}"
 
 
 # ── Pillar 3 – Intent Alignment (weight 20%) ─────────────────────────────────
@@ -278,7 +284,7 @@ def score_intent_alignment(tickers, weights_vec):
     if not income_flag and not inflation_flag:
         notes.append("no dedicated income or inflation hedge")
 
-    return score, "; ".join(notes)
+    return _clamp(score), "; ".join(notes)
 
 
 # ── Pillar 4 – Volatility Appropriateness (weight 15%) ───────────────────────
@@ -316,7 +322,7 @@ def score_volatility_appropriateness(full_stats):
 
     vol_note    = f"annualised vol {vol:.1%}"
     sharpe_note = f"Sharpe {sharpe:.2f} ({'compensates' if compensation >= 14 else 'does not fully compensate'})"
-    return score, f"{vol_note}; {sharpe_note}"
+    return _clamp(score), f"{vol_note}; {sharpe_note}"
 
 
 # ── Pillar 5 – Portfolio Health (weight 10%) ──────────────────────────────────
@@ -374,7 +380,7 @@ def score_portfolio_health(full_stats, portfolio_returns):
         f"tail ratio {fat_ratio:.2f} ({'thin' if fat_ratio <= 1.4 else 'fat'} tails); "
         f"win-rate {win_rate:.1%}"
     )
-    return score, explanation
+    return _clamp(score), explanation
 
 
 # ── Final scoring function ────────────────────────────────────────────────────

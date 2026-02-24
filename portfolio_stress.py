@@ -378,12 +378,27 @@ for _p in hybrid_result['pillar_scores']:
         f'</div>'
     )
 
+# Build allocation breakdown HTML for the Portfolio Category section
+_pa = portfolio_category['alloc']
+_alloc_html = (
+    f'<span class="alloc-item">Equity&nbsp;<strong>{_pa["equity"]:.0%}</strong></span>'
+    f'<span class="alloc-sep">&middot;</span>'
+    f'<span class="alloc-item">Bonds&nbsp;<strong>{_pa["bond"]:.0%}</strong></span>'
+    f'<span class="alloc-sep">&middot;</span>'
+    f'<span class="alloc-item">Intl&nbsp;<strong>{_pa["international"]:.0%}</strong></span>'
+    f'<span class="alloc-sep">&middot;</span>'
+    f'<span class="alloc-item">Infl&nbsp;hedge&nbsp;<strong>{_pa["inflation"]:.0%}</strong></span>'
+    f'<span class="alloc-sep">&middot;</span>'
+    f'<span class="alloc-item">Income&nbsp;<strong>{_pa["income"]:.0%}</strong></span>'
+)
+
 # ----------------------------------------
 # 6. Terminal output
 # ----------------------------------------
 LINE = "=" * 50
+# /scan — portfolio identity block
 print(f"\n{LINE}")
-print(f"  {portfolio_name}")
+print(f"  {portfolio_name}  |  {port_cat_name}  |  Hybrid Grade: {hybrid_letter}  ({hybrid_total_score:.0f}/100)")
 print(f"  FULL PERIOD  ({full_stats['start_date']} \u2192 {full_stats['end_date']})")
 print(LINE)
 print(f"  CAGR           : {full_stats['cagr']:>8.2%}")
@@ -398,7 +413,9 @@ print(f"    60/40 CAGR {b6040_stats['cagr']:.2%}  MaxDD {b6040_stats['max_dd']:.
 print(f"\n  Weights (normalized):")
 for t, w in zip(active, weights_vec):
     print(f"    {t:<8}: {w:.2%}")
+print(f"\n  Category : {port_cat_name}  \u2014  {port_cat_desc}")
 
+# /stress — stress window results
 for label, _s, _e, stats in stress_results:
     if stats is None:
         print(f"\n{label}: No data in this window.")
@@ -805,24 +822,14 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
 .warn-item{{font-size:13px;color:var(--amber)}}
 .two-col{{display:grid;grid-template-columns:1fr 1fr;gap:20px}}
 .two-col-header{{padding:14px 20px;border-bottom:1px solid var(--border);font-size:13px;font-weight:600}}
-.grade-card{{grid-column:1 / -1;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 32px;box-shadow:var(--shadow);position:relative;overflow:hidden;display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap;transition:transform .2s,box-shadow .2s}}
-.grade-card:hover{{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.5)}}
-.grade-card::before{{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--gc,var(--accent));border-radius:var(--radius) var(--radius) 0 0}}
-.grade-letter{{font-size:88px;font-weight:800;line-height:1;color:var(--gc,var(--accent));min-width:96px;text-align:center}}
-.grade-title-label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;text-align:center}}
-.grade-meta{{flex:1;min-width:200px}}
-.grade-meta .label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}}
-.grade-score-line{{font-size:15px;font-weight:700;color:var(--gc,var(--accent));margin-bottom:14px}}
-.grade-bullets{{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}}
-.grade-bullets li{{font-size:13px;color:var(--muted)}}
-.grade-bullets li::before{{content:"\203a  ";color:var(--gc,var(--accent))}}
-.grade-breakdown{{display:flex;flex-direction:column;gap:10px;min-width:240px}}
 .gr-section-label{{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}}
-.gr-row{{display:grid;grid-template-columns:90px 1fr 44px;align-items:center;gap:10px}}
-.gr-label{{font-size:12px;color:var(--muted)}}
-.gr-bar{{height:6px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}}
-.gr-bar-fill{{height:100%;border-radius:999px;background:var(--gc,var(--accent))}}
-.gr-pts{{font-size:12px;color:var(--text);text-align:right;font-weight:600}}
+.cat-banner{{border:1px solid var(--border);border-radius:var(--radius);padding:24px 32px;box-shadow:var(--shadow);margin-bottom:40px;display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:20px}}
+.cat-banner-left{{display:flex;flex-direction:column;gap:10px}}
+.cat-banner-desc{{font-size:14px;color:var(--text);max-width:480px;line-height:1.6}}
+.cat-alloc{{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}}
+.alloc-item{{font-size:13px;color:var(--muted)}}
+.alloc-item strong{{color:var(--text)}}
+.alloc-sep{{color:var(--border);font-size:16px}}
 .hybrid-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 32px;box-shadow:var(--shadow);position:relative;overflow:hidden;display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap;transition:transform .2s,box-shadow .2s;margin-bottom:40px}}
 .hybrid-card:hover{{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.5)}}
 .hybrid-card::before{{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--hc,var(--accent));border-radius:var(--radius) var(--radius) 0 0}}
@@ -899,26 +906,20 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
       <div class="value {color_class((full_stats['cagr'] - b6040_stats['cagr']), True)}">{pct((full_stats['cagr'] - b6040_stats['cagr'])*100)}</div>
       <div class="sub">CAGR outperformance vs 60/40 blend</div>
     </div>
-    <div class="grade-card" style="--gc:{grade_color}">
-      <div>
-        <div class="grade-title-label">Portfolio Grade</div>
-        <div class="grade-letter">{grade_letter}</div>
-      </div>
-      <div class="grade-meta">
-        <div class="label">What drove this grade</div>
-        <div class="grade-score-line">Score: {grade_score} / 100</div>
-        <ul class="grade-bullets">{_grade_bullets_html}</ul>
-      </div>
-      <div class="grade-breakdown">
-        <div class="gr-section-label">Component Scores</div>
-        {_grade_bars_html}
-      </div>
+    <div class="stat-card" style="--accent:{hybrid_letter_color};--accent2:{hybrid_letter_color}">
+      <div class="label">Hybrid Grade</div>
+      <div class="value" style="color:{hybrid_letter_color};font-size:42px;font-weight:800">{hybrid_letter}</div>
+      <div class="sub">Score {hybrid_total_score:.0f} / 100 &bull; Five-pillar model</div>
+    </div>
+    <div class="stat-card" style="--accent:{port_cat_color};--accent2:{port_cat_color}">
+      <div class="label">Portfolio Category</div>
+      <div class="value" style="color:{port_cat_color};font-size:18px;font-weight:700;line-height:1.25;margin-top:4px">{port_cat_name}</div>
+      <div class="sub" style="margin-top:8px">{port_cat_desc}</div>
     </div>
   </div>
-  <p class="section-title">Hybrid Analysis</p>
+  <p class="section-title">Hybrid Score</p>
   <div class="hybrid-card" style="--hc:{hybrid_letter_color}">
     <div class="hybrid-left">
-      <div class="cat-chip" style="background:{_cat_bg};color:{port_cat_color};border:1px solid {_cat_border}">{port_cat_name}</div>
       <div class="hybrid-letter">{hybrid_letter}</div>
       <div class="hybrid-score-display">Score&nbsp;{hybrid_total_score}&nbsp;/ 100</div>
       <div class="hybrid-explanation">{hybrid_explanation}</div>
@@ -927,6 +928,14 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
       <div class="gr-section-label" style="margin-bottom:12px">Five-Pillar Breakdown</div>
       {_hybrid_pillar_html}
     </div>
+  </div>
+  <p class="section-title">Portfolio Category</p>
+  <div class="cat-banner" style="--cc:{port_cat_color};background:{_cat_bg};border-color:{_cat_border}">
+    <div class="cat-banner-left">
+      <div class="cat-chip" style="background:{_cat_bg};color:{port_cat_color};border:1px solid {_cat_border}">{port_cat_name}</div>
+      <div class="cat-banner-desc">{port_cat_desc}</div>
+    </div>
+    <div class="cat-alloc">{_alloc_html}</div>
   </div>
   <p class="section-title">Performance Charts</p>
   <div class="chart-grid">
