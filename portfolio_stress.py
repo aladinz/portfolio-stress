@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 import yfinance as yf
+from hybrid_scoring import compute_hybrid_score, classify_portfolio
 
 # ----------------------------------------
 # 1. Load portfolio from text file
@@ -327,6 +328,57 @@ stress_windows = [
 stress_results = [(lbl, s, e, get_stress_stats(s, e)) for lbl, s, e in stress_windows]
 
 # ----------------------------------------
+# 5c. Hybrid Scoring System + Portfolio Categorization
+# ----------------------------------------
+hybrid_result      = compute_hybrid_score(
+    tickers=active,
+    weights_vec=weights_vec,
+    full_stats=full_stats,
+    stress_results=stress_results,
+    corr_matrix=corr_matrix,
+    portfolio_returns=portfolio_returns,
+)
+portfolio_category = classify_portfolio(
+    tickers=active,
+    weights_vec=weights_vec,
+    full_stats=full_stats,
+)
+
+# Convenience aliases used in the HTML f-string below
+hybrid_letter       = hybrid_result['letter_grade']
+hybrid_letter_color = hybrid_result['grade_color']
+hybrid_total_score  = hybrid_result['total_score']
+hybrid_explanation  = hybrid_result['explanation']
+port_cat_name       = portfolio_category['category']
+port_cat_color      = portfolio_category['color']
+port_cat_desc       = portfolio_category['description']
+
+def _hex_rgba(hex_c, alpha):
+    """Convert a #rrggbb hex colour to an rgba(...) CSS value."""
+    h = hex_c.lstrip('#')
+    r, g, b = int(h[:2], 16), int(h[2:4], 16), int(h[4:], 16)
+    return f"rgba({r},{g},{b},{alpha})"
+
+_cat_bg     = _hex_rgba(port_cat_color, 0.12)
+_cat_border = _hex_rgba(port_cat_color, 0.30)
+
+# Build pillar-row HTML before entering the f-string (no escaping needed)
+_hybrid_pillar_html = ""
+for _p in hybrid_result['pillar_scores']:
+    _bar_w = f"{_p['raw']:.0f}%"
+    _hybrid_pillar_html += (
+        f'<div class="pillar-row">'
+        f'<div class="pillar-header">'
+        f'<span class="pillar-name">{_p["pillar"]}'
+        f'<span class="pillar-wt">&nbsp;{_p["weight"]:.0%}</span></span>'
+        f'<span class="pillar-score">{_p["raw"]:.0f}&thinsp;/&thinsp;100</span>'
+        f'</div>'
+        f'<div class="pillar-bar"><div class="pillar-bar-fill" style="width:{_bar_w}"></div></div>'
+        f'<div class="pillar-desc">{_p["explanation"]}</div>'
+        f'</div>'
+    )
+
+# ----------------------------------------
 # 6. Terminal output
 # ----------------------------------------
 LINE = "=" * 50
@@ -358,6 +410,19 @@ for label, _s, _e, stats in stress_results:
     print(f"  Max Drawdown   : {stats['max_drawdown']:>8.2%}")
     print(f"  Annualized Vol : {stats['annual_vol']:>8.2%}")
     print(f"  Sharpe Ratio   : {stats['sharpe']:>8.2f}")
+
+# ---- /summarize : Hybrid Score + Portfolio Category ----
+print(f"\n{LINE}")
+print(f"  HYBRID ANALYSIS")
+print(LINE)
+print(f"  Category : {portfolio_category['category']}")
+print(f"  Grade    : {hybrid_result['letter_grade']}  "
+      f"(score {hybrid_result['total_score']:.0f}/100)")
+print(f"  {hybrid_result['explanation']}")
+print(f"\n  Pillar Scores (weight × raw = weighted):")
+for _p in hybrid_result['pillar_scores']:
+    print(f"    {_p['pillar']:<28} {_p['raw']:>5.1f}/100  "
+          f"(weight {_p['weight']:.0%})")
 
 # ----------------------------------------
 # 7. Build Plotly figures
@@ -758,6 +823,24 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
 .gr-bar{{height:6px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden}}
 .gr-bar-fill{{height:100%;border-radius:999px;background:var(--gc,var(--accent))}}
 .gr-pts{{font-size:12px;color:var(--text);text-align:right;font-weight:600}}
+.hybrid-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:28px 32px;box-shadow:var(--shadow);position:relative;overflow:hidden;display:flex;align-items:flex-start;gap:40px;flex-wrap:wrap;transition:transform .2s,box-shadow .2s;margin-bottom:40px}}
+.hybrid-card:hover{{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,0,0,.5)}}
+.hybrid-card::before{{content:"";position:absolute;top:0;left:0;right:0;height:3px;background:var(--hc,var(--accent));border-radius:var(--radius) var(--radius) 0 0}}
+.hybrid-left{{display:flex;flex-direction:column;align-items:center;gap:8px;min-width:130px}}
+.cat-chip{{display:inline-block;padding:5px 16px;border-radius:999px;font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}}
+.hybrid-letter{{font-size:72px;font-weight:800;line-height:1;color:var(--hc,var(--accent))}}
+.hybrid-score-display{{font-size:14px;font-weight:700;color:var(--hc,var(--accent))}}
+.hybrid-explanation{{font-size:12px;color:var(--muted);text-align:center;max-width:160px;line-height:1.5;margin-top:4px}}
+.hybrid-right{{flex:1;min-width:260px}}
+.pillar-row{{padding:10px 0;border-bottom:1px solid var(--border)}}
+.pillar-row:last-child{{border-bottom:none}}
+.pillar-header{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}}
+.pillar-name{{font-size:13px;font-weight:600;color:var(--text)}}
+.pillar-wt{{font-size:11px;color:var(--muted);font-weight:400}}
+.pillar-score{{font-size:13px;font-weight:700;color:var(--hc,var(--accent))}}
+.pillar-bar{{height:7px;border-radius:999px;background:rgba(255,255,255,.07);overflow:hidden;margin-bottom:4px}}
+.pillar-bar-fill{{height:100%;border-radius:999px;background:var(--hc,var(--accent))}}
+.pillar-desc{{font-size:11px;color:var(--muted)}}
 .footer{{text-align:center;color:var(--muted);font-size:12px;margin-top:60px;padding-top:24px;border-top:1px solid var(--border)}}
 @media(max-width:768px){{.header{{padding:28px 20px}}.main{{padding:24px 20px 0}}.chart-grid{{grid-template-columns:1fr}}.two-col{{grid-template-columns:1fr}}}}
 </style>
@@ -830,6 +913,19 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
         <div class="gr-section-label">Component Scores</div>
         {_grade_bars_html}
       </div>
+    </div>
+  </div>
+  <p class="section-title">Hybrid Analysis</p>
+  <div class="hybrid-card" style="--hc:{hybrid_letter_color}">
+    <div class="hybrid-left">
+      <div class="cat-chip" style="background:{_cat_bg};color:{port_cat_color};border:1px solid {_cat_border}">{port_cat_name}</div>
+      <div class="hybrid-letter">{hybrid_letter}</div>
+      <div class="hybrid-score-display">Score&nbsp;{hybrid_total_score}&nbsp;/ 100</div>
+      <div class="hybrid-explanation">{hybrid_explanation}</div>
+    </div>
+    <div class="hybrid-right">
+      <div class="gr-section-label" style="margin-bottom:12px">Five-Pillar Breakdown</div>
+      {_hybrid_pillar_html}
     </div>
   </div>
   <p class="section-title">Performance Charts</p>
