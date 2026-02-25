@@ -13,7 +13,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
 import yfinance as yf
-from hybrid_scoring import compute_hybrid_score, classify_portfolio
+from hybrid_scoring import (compute_hybrid_score, classify_portfolio,
+                             generate_portfolio_personality, compute_confidence_scores)
 
 # ----------------------------------------
 # 1. Load portfolio from text file
@@ -521,6 +522,68 @@ _alloc_html = (
     f'<span class="alloc-item">Infl&nbsp;hedge&nbsp;<strong>{_pa["inflation"]:.0%}</strong></span>'
     f'<span class="alloc-sep">&middot;</span>'
     f'<span class="alloc-item">Income&nbsp;<strong>{_pa["income"]:.0%}</strong></span>'
+)
+
+# ----------------------------------------
+# 5d. Portfolio Personality & Confidence Scores
+# ----------------------------------------
+personality_result = generate_portfolio_personality(
+    tickers=active,
+    weights_vec=weights_vec,
+    full_stats=full_stats,
+    portfolio_category=portfolio_category,
+)
+confidence_scores = compute_confidence_scores(
+    tickers=active,
+    weights_vec=weights_vec,
+    needs_backfill=_needs_backfill,
+    proxy_blends=_PROXY_BLENDS,
+    n_returns_days=len(portfolio_returns),
+    stress_results=stress_results,
+)
+
+# ── Personality HTML card ─────────────────────────────────────────────────────
+_trait_pills = "".join(
+    f'<span class="p-trait">{t}</span>'
+    for t in personality_result["traits"]
+)
+_personality_html = (
+    '<p class="section-title">Portfolio Personality</p>'
+    '<div class="personality-card">'
+    '<div class="p-header">'
+    f'<span class="p-label">{personality_result["label"]}</span>'
+    f'<div class="p-traits">{_trait_pills}</div>'
+    '</div>'
+    f'<p class="p-desc">{personality_result["description"]}</p>'
+    '</div>'
+)
+
+# ── Confidence Scores HTML card ───────────────────────────────────────────────
+_conf_rows = "".join(
+    f'<tr>'
+    f'<td class="conf-metric">{r["metric"]}</td>'
+    f'<td><span class="dq-badge {r["badge_cls"]}">{r["confidence"]}</span></td>'
+    f'<td class="conf-reason">{r["reason"]}</td>'
+    f'</tr>'
+    for r in confidence_scores
+)
+_confidence_html = (
+    '<p class="section-title">Confidence Scores</p>'
+    '<div class="dq-card">'
+    '<div class="dq-header">'
+    '<span class="dq-title">Metric Confidence Levels</span>'
+    '</div>'
+    '<p class="dq-desc">'
+    'Confidence reflects how much of each metric relies on real vs synthetic backfill data. '
+    'Ratings are determined by backfill weight, proxy complexity, and stress-window coverage.'
+    '</p>'
+    '<table class="dq-table conf-table">'
+    '<thead><tr>'
+    '<th>Metric</th><th>Confidence</th><th>Rationale</th>'
+    '</tr></thead>'
+    f'<tbody>{_conf_rows}</tbody>'
+    '</table>'
+    '</div>'
 )
 
 # ----------------------------------------
@@ -1198,6 +1261,15 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
 .cat-banner-left{{display:flex;flex-direction:column;gap:10px}}
 .cat-banner-desc{{font-size:14px;color:var(--text);max-width:480px;line-height:1.6}}
 .cat-alloc{{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}}
+.personality-card{{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px 28px;box-shadow:var(--shadow);margin-bottom:40px}}
+.p-header{{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:14px}}
+.p-label{{font-size:20px;font-weight:700;color:var(--accent2)}}
+.p-traits{{display:flex;flex-wrap:wrap;gap:8px}}
+.p-trait{{display:inline-block;padding:3px 11px;border-radius:999px;font-size:11px;font-weight:600;letter-spacing:.04em;background:rgba(99,102,241,.15);color:var(--accent2);border:1px solid rgba(99,102,241,.3)}}
+.p-desc{{font-size:14px;color:var(--text);line-height:1.7;max-width:900px}}
+.conf-table{{width:100%}}
+.conf-metric{{font-weight:600;color:var(--text);white-space:nowrap;padding-right:24px}}
+.conf-reason{{color:var(--muted);font-size:13px;line-height:1.5}}
 .alloc-item{{font-size:13px;color:var(--muted)}}
 .alloc-item strong{{color:var(--text)}}
 .alloc-sep{{color:var(--border);font-size:16px}}
@@ -1312,6 +1384,8 @@ body{{background:var(--bg);color:var(--text);font-family:var(--font);min-height:
     <div class="cat-alloc">{_alloc_html}</div>
   </div>
   {_dq_html}
+  {_personality_html}
+  {_confidence_html}
   <p class="section-title">Performance Charts</p>
   <div class="chart-grid">
     <div class="chart-card chart-full"><div id="chart-growth" style="height:420px"></div></div>

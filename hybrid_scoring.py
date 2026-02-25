@@ -771,3 +771,294 @@ def classify_portfolio(tickers, weights_vec, full_stats):
         "alloc":       alloc,
         "scores":      scores,
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Portfolio Personality
+# ─────────────────────────────────────────────────────────────────────────────
+
+def generate_portfolio_personality(tickers, weights_vec, full_stats, portfolio_category):
+    """
+    Infer a portfolio's temperament (archetype label + descriptive paragraph)
+    from its holdings, allocations, and historical behaviour.
+
+    Returns a dict:
+        label       — short archetype name, e.g. "Resilient Pragmatist"
+        traits      — list of detected trait strings (shown as badge labels)
+        description — 2–4 sentence narrative paragraph
+    """
+    alloc = _classify_holdings(tickers, weights_vec)
+
+    equity   = alloc["equity"]
+    bond     = alloc["bond"]
+    intl     = alloc["international"]
+    infl     = alloc["inflation"]
+    income   = alloc["income"]
+    vol      = float(full_stats.get("vol",    0.15))
+    max_dd   = float(full_stats.get("max_dd", -0.20))
+    sharpe   = float(full_stats.get("sharpe",  0.50))
+    cat_name = portfolio_category.get("category", "")
+
+    # ── Measure specific tilts ────────────────────────────────────────────────
+    tech_w  = sum(float(w) for t, w in zip(tickers, weights_vec)
+                  if t.upper() in _TECH_GROWTH_TICKERS)
+    grow_w  = sum(float(w) for t, w in zip(tickers, weights_vec)
+                  if t.upper() in _GROWTH_ANCHOR_TICKERS)
+    def_w   = sum(float(w) for t, w in zip(tickers, weights_vec)
+                  if t.upper() in _DEFENSIVE_SECTOR_TICKERS)
+
+    # ── Detected traits (shown as pill badges in the HTML card) ──────────────
+    traits = []
+    if tech_w >= 0.15:
+        traits.append("Tech-tilted growth")
+    elif grow_w + equity >= 0.55:
+        traits.append("Broad-market growth")
+
+    if income >= 0.10:
+        traits.append("Income-focused")
+    elif income >= 0.04:
+        traits.append("Income tilt")
+
+    if def_w >= 0.10 or (bond >= 0.10 and income >= 0.05):
+        traits.append("Defensive ballast")
+
+    if infl >= 0.08:
+        traits.append("Inflation-hedged")
+    elif infl >= 0.03:
+        traits.append("Mild inflation hedge")
+
+    if intl >= 0.15:
+        traits.append("Strong global reach")
+    elif intl >= 0.05:
+        traits.append("Global diversification")
+
+    if vol <= 0.11:
+        traits.append("Low volatility")
+    elif vol >= 0.22:
+        traits.append("High volatility")
+
+    if max_dd >= -0.12:
+        traits.append("Shallow drawdowns")
+    elif max_dd <= -0.35:
+        traits.append("Deep drawdowns")
+
+    # ── Archetype label (most-specific match wins) ────────────────────────────
+    if tech_w >= 0.15 and "Defensive ballast" in traits:
+        label = "Ambitious Pragmatist"
+    elif tech_w >= 0.15 and infl >= 0.05:
+        label = "Forward-Looking Realist"
+    elif tech_w >= 0.15:
+        label = "Growth Maximiser"
+    elif income >= 0.10 and (def_w >= 0.08 or bond >= 0.20):
+        label = "Dividend Fortress"
+    elif income >= 0.10 and intl >= 0.05:
+        label = "Global Income Seeker"
+    elif income >= 0.10:
+        label = "Income Architect"
+    elif equity >= 0.70 and intl >= 0.10 and infl >= 0.05:
+        label = "Resilient Pragmatist"
+    elif equity >= 0.70 and intl >= 0.10:
+        label = "Global Optimist"
+    elif equity >= 0.80 and bond < 0.10:
+        label = "Pure Growth Engine"
+    elif bond >= 0.30 and infl >= 0.05:
+        label = "Cautious Inflation Fighter"
+    elif bond >= 0.25:
+        label = "Conservative Anchor"
+    elif infl >= 0.05 and intl >= 0.05:
+        label = "All-Weather Builder"
+    elif "Defensive ballast" in traits and infl >= 0.05:
+        label = "Balanced Pragmatist"
+    elif cat_name == "Growth-Resilient":
+        label = "Resilient Pragmatist"
+    elif cat_name == "Aggressive":
+        label = "High-Conviction Risk Taker"
+    elif cat_name == "Conservative":
+        label = "Capital Preserver"
+    else:
+        label = "Balanced Opportunist"
+
+    # ── Narrative sentences ───────────────────────────────────────────────────
+    sentences = []
+
+    # Sentence 1 — core identity
+    if tech_w >= 0.15:
+        sentences.append(
+            f"At its core, this portfolio is driven by high-conviction technology and "
+            f"growth equity ({tech_w:.0%} in sector-tech ETFs), positioning it to "
+            f"capture outsized returns during technology-led bull markets."
+        )
+    elif equity >= 0.75:
+        sentences.append(
+            f"This portfolio leans heavily into broad equity markets ({equity:.0%} equities), "
+            f"seeking long-run capital appreciation as its primary objective."
+        )
+    else:
+        sentences.append(
+            f"This portfolio maintains a balanced posture with {equity:.0%} equities and "
+            f"{bond:.0%} fixed income, aiming for steady risk-adjusted growth across regimes."
+        )
+
+    # Sentence 2 — complementary traits
+    add_ons = []
+    if intl >= 0.05:
+        add_ons.append(f"global reach ({intl:.0%} international exposure)")
+    if infl >= 0.05:
+        add_ons.append(f"inflation protection ({infl:.0%} real assets / TIPS)")
+    if income >= 0.05:
+        add_ons.append(f"income generation ({income:.0%} dividend-focused holdings)")
+    if def_w >= 0.05:
+        add_ons.append("defensive sector ballast")
+    if add_ons:
+        sentences.append("It pairs this with " + ", ".join(add_ons) + ".")
+
+    # Sentence 3 — risk / behaviour profile
+    vol_desc = "low" if vol <= 0.12 else ("moderate" if vol <= 0.18 else "elevated")
+    dd_desc  = "shallow" if max_dd >= -0.15 else ("controlled" if max_dd >= -0.28 else "deep")
+    sr_desc  = "strong" if sharpe >= 1.0 else ("acceptable" if sharpe >= 0.5 else "weak")
+    sentences.append(
+        f"Historically it has shown {vol_desc} annualised volatility ({vol:.1%}) "
+        f"with {dd_desc} peak drawdowns ({max_dd:.1%}), "
+        f"and {sr_desc} risk-adjusted returns (Sharpe {sharpe:.2f})."
+    )
+
+    # Sentence 4 — regime summary
+    if vol <= 0.13 and max_dd >= -0.22:
+        sentences.append(
+            "Its risk profile suggests predictable behaviour across most market regimes, "
+            "making it well-suited for investors who prioritise consistent compounding."
+        )
+    elif tech_w >= 0.10 and max_dd <= -0.30:
+        sentences.append(
+            "The deep drawdown potential is the price of its growth ambition — "
+            "best held with a long horizon and high tolerance for short-term volatility."
+        )
+    elif infl >= 0.05 and intl >= 0.05:
+        sentences.append(
+            "The combination of inflation hedges and international diversification "
+            "provides unusual resilience against global macro shocks."
+        )
+
+    return {
+        "label":       label,
+        "traits":      traits,
+        "description": " ".join(sentences),
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Confidence Scores
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_confidence_scores(tickers, weights_vec, needs_backfill,
+                              proxy_blends, n_returns_days, stress_results):
+    """
+    Assign a confidence tier (High / Medium / Low) for each major reported metric.
+
+    Confidence depends on:
+      - Total portfolio weight that relies on synthetic backfill
+      - Proxy complexity (multi-asset blends vs single-ticker proxies)
+      - Duration-scaling flags (e.g. VTIP = TIP × 0.35)
+      - Stress-window data coverage
+
+    Returns a list of dicts, one per metric, each with keys:
+        metric       — display name
+        confidence   — "High" | "Medium" | "Low"
+        badge_cls    — CSS class for the DQ badge
+        reason       — one-sentence explanation
+    """
+    bf_upper = {t.upper() for t in needs_backfill}
+
+    # Total weight under synthetic data
+    backfill_weight = sum(
+        float(w) for t, w in zip(tickers, weights_vec)
+        if t.upper() in bf_upper
+    )
+
+    # Count proxies with multi-asset blends (VXUS, BNDW)
+    n_complex = sum(
+        1 for t in bf_upper
+        if t in proxy_blends
+        and sum(1 for k in proxy_blends[t] if not k.startswith("_")) > 1
+    )
+
+    # Any duration-scaled proxy (VTIP)?
+    has_scaled = any(
+        "_scale" in proxy_blends.get(t, {})
+        for t in bf_upper
+    )
+
+    # Stress-window availability
+    windows_covered = sum(1 for _, _, _, s in stress_results if s is not None)
+    windows_total   = len(stress_results)
+
+    def _tier(extra_penalty=0):
+        effective = backfill_weight + extra_penalty * 0.15
+        if effective < 0.30:
+            return "High",   "badge-dq-high"
+        elif effective < 0.60:
+            return "Medium", "badge-dq-medium"
+        else:
+            return "Low",    "badge-dq-low"
+
+    def _reason(metric, conf):
+        if backfill_weight == 0:
+            return f"Full {n_returns_days:,}-day real history — no synthetic data used."
+        pct = f"{backfill_weight:.0%}"
+        blend_desc = "multi-blend" if n_complex else "single-ticker"
+        if conf == "High":
+            return (
+                f"{pct} of portfolio weight uses validated {blend_desc} proxy backfill; "
+                f"remaining {n_returns_days:,} return-days are fully real."
+            )
+        elif conf == "Medium":
+            return (
+                f"{pct} backfill weight ({blend_desc} proxy) introduces modest uncertainty; "
+                f"results are directionally reliable."
+            )
+        else:
+            return (
+                f"{pct} backfill weight — significant proxy dependence; "
+                f"interpret {metric} with caution."
+            )
+
+    results = []
+    # VaR / CVaR gets a small extra penalty when duration-scaled proxies are present
+    metric_cfg = [
+        ("CAGR",            0),
+        ("Max Drawdown",    0),
+        ("Sharpe Ratio",    0),
+        ("Volatility",      0),
+        ("VaR / CVaR",      1 if has_scaled else 0),
+        ("Stress Windows",  None),   # handled separately
+    ]
+
+    for metric, extra in metric_cfg:
+        if metric == "Stress Windows":
+            if windows_covered == windows_total:
+                conf, badge_cls = "High",   "badge-dq-high"
+                reason = f"All {windows_total} stress windows have full data coverage."
+            elif windows_covered >= 2:
+                conf, badge_cls = "Medium", "badge-dq-medium"
+                reason = (
+                    f"{windows_covered}/{windows_total} stress windows covered; "
+                    f"one window may have partial data."
+                )
+            else:
+                conf, badge_cls = "Low",    "badge-dq-low"
+                reason = (
+                    f"Only {windows_covered}/{windows_total} stress windows available — "
+                    f"crisis comparisons are limited."
+                )
+        else:
+            conf, badge_cls = _tier(extra)
+            reason = _reason(metric, conf)
+
+        results.append({
+            "metric":     metric,
+            "confidence": conf,
+            "badge_cls":  badge_cls,
+            "reason":     reason,
+        })
+
+    return results
