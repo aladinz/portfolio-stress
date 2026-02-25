@@ -99,7 +99,7 @@ else:
 bench_data = bench_data.ffill()
 
 # ETFs that have a proxy blend defined — short history will be backfilled, not penalised.
-_BACKFILL_SUPPORTED = {"SCHD", "VXUS", "BNDW", "VTIP", "PDBC"}
+_BACKFILL_SUPPORTED = {"SCHD", "VXUS", "BNDW", "VTIP", "PDBC", "FZROX", "VRT"}
 
 warnings = []
 for t in tickers:
@@ -133,11 +133,17 @@ weights_vec = weights_vec / weights_vec.sum()
 # "_scale" applies a return multiplier BEFORE reconstructing prices.
 # VTIP: duration ~2.5 yr vs TIP ~7.5 yr  ⟹  scale ≈ 0.35.
 _PROXY_BLENDS = {
-    "SCHD": {"VIG": 1.0},
-    "VXUS": {"VEA": 0.70, "VWO": 0.30},
-    "BNDW": {"BND": 0.50, "BNDX": 0.50},
-    "VTIP": {"TIP": 1.0, "_scale": 0.35},
-    "PDBC": {"DBC": 1.0},
+    "SCHD":  {"VIG": 1.0},
+    "VXUS":  {"VEA": 0.70, "VWO": 0.30},
+    "BNDW":  {"BND": 0.50, "BNDX": 0.50},
+    "VTIP":  {"TIP": 1.0, "_scale": 0.35},
+    "PDBC":  {"DBC": 1.0},
+    # FZROX — Fidelity ZERO Total Market Fund (inception 2018); VTI is the
+    # closest long-history total-market ETF proxy.
+    "FZROX": {"VTI": 1.0},
+    # VRT — Vertiv Holdings (industrial/data-centre; IPO 2020); XLI provides
+    # stable long-history industrial-sector exposure as a proxy.
+    "VRT":   {"XLI": 1.0},
 }
 
 _port_start = pd.Timestamp(start_date)
@@ -1059,6 +1065,8 @@ if _bf_applied:
         '<span class="dq-meta-value">'
         'VTIP is duration-scaled (\u00d70.35) relative to TIP (~2.5&thinsp;yr vs ~7.5&thinsp;yr). '
         'BNDW proxy weights renormalise automatically for dates before BNDX inception. '
+        'FZROX (Fidelity ZERO Total Market; inception 2018) proxied by VTI (100%). '
+        'VRT (Vertiv Holdings; IPO Feb 2020) proxied by XLI (industrial sector ETF, 100%). '
         'Backfill ensures fair comparison across the full 20-year return history.'
         '</span>'
         '</div>'
